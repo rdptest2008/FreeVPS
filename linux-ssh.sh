@@ -1,57 +1,42 @@
 #!/bin/bash
 
-# إنشاء المستخدم وتحديث كلمة المرور بصلاحيات sudo
+echo "🔧 إعداد مستخدم SSH جديد..."
 sudo useradd -m "$LINUX_USERNAME"
-sudo adduser "$LINUX_USERNAME" sudo
 echo "$LINUX_USERNAME:$LINUX_USER_PASSWORD" | sudo chpasswd
-sudo sed -i 's/\/bin\/sh/\/bin\/bash/g' /etc/passwd
-sudo hostname "$LINUX_MACHINE_NAME"
+sudo usermod -aG sudo "$LINUX_USERNAME"
+sudo hostnamectl set-hostname "$LINUX_MACHINE_NAME"
 
-# تحقق من المتغيرات
-if [[ -z "$NGROK_AUTH_TOKEN" ]]; then
-  echo "Please set NGROK_AUTH_TOKEN"
-  exit 2
-fi
+echo "🧹 إزالة ngrok القديم إن وُجد..."
+sudo rm -f /usr/local/bin/ngrok /usr/bin/ngrok ./ngrok ./ngrok-stable-linux-amd64.zip
 
-if [[ -z "$LINUX_USER_PASSWORD" ]]; then
-  echo "Please set LINUX_USER_PASSWORD"
-  exit 3
-fi
+echo "⬇️ تحميل ngrok الجديد (v3)..."
+curl -sLo ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
+unzip ngrok.zip
+chmod +x ngrok
+NGROK_PATH=$(realpath ./ngrok)
 
-echo "Installing latest ngrok..."
+echo "🔐 تسجيل التوكن في ngrok..."
+$NGROK_PATH config add-authtoken "$NGROK_AUTH_TOKEN"
 
-# حذف النسخة القديمة إن وجدت
-sudo rm -f /usr/local/bin/ngrok
-sudo rm -f /usr/bin/ngrok
-
-# تنزيل ngrok v3 (amd64)
-curl -sLO https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip
-unzip -o ngrok-stable-linux-amd64.zip
-sudo mv ngrok /usr/local/bin/ngrok
-rm ngrok-stable-linux-amd64.zip
-
-echo "Updating password for $USER..."
+echo "🛠️ إعداد كلمة مرور للمستخدم الحالي..."
 echo -e "$LINUX_USER_PASSWORD\n$LINUX_USER_PASSWORD" | sudo passwd "$USER"
 
-echo "Starting ngrok tunnel on port 22..."
-
+echo "🚀 بدء نغروك على بورت SSH 22..."
 rm -f .ngrok.log
-
-# تكوين ngrok مع التوكن الخاص بك
-ngrok config add-authtoken "$NGROK_AUTH_TOKEN"
-
-# تشغيل نغروك مع تسجيل الخروج
-ngrok tcp 22 --log=stdout > .ngrok.log &
+$NGROK_PATH tcp 22 --log=stdout > .ngrok.log &
 
 sleep 10
 
-HAS_ERRORS=$(grep "ERR_NGROK" < .ngrok.log)
+# استخراج الرابط أو عرض الخطأ
+HAS_ERRORS=$(grep "ERR_NGROK" .ngrok.log)
 
 if [[ -z "$HAS_ERRORS" ]]; then
-  echo "SSH connection details:"
-  grep -o -E "tcp://(.+)" < .ngrok.log | sed "s/tcp:\/\//ssh $LINUX_USERNAME@/" | sed "s/:/ -p /"
+  echo ""
+  echo "✅ SSH جاهز:"
+  grep -o -E "tcp://(.+)" .ngrok.log | sed "s/tcp:\/\//ssh $LINUX_USERNAME@/" | sed "s/:/ -p /"
+  echo ""
 else
-  echo "ngrok error:"
-  cat .ngrok.log
+  echo "❌ حصل خطأ من ngrok:"
+  echo "$HAS_ERRORS"
   exit 4
 fi
